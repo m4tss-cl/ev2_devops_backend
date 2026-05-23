@@ -103,7 +103,7 @@ bash ./mvnw spring-boot:run
 
 ## Swagger / OpenAPI
 
-Con los servicios en ejecución:
+Con los servicios en ejecución (usando el **puerto host**, lado izquierdo del mapeo `host:contenedor`):
 
 - Ventas: `http://localhost:8081/swagger-ui.html`
 - Despacho: `http://localhost:8080/swagger-ui.html`
