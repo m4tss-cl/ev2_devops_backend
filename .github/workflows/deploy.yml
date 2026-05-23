@@ -78,7 +78,7 @@ jobs:
   # FASE 3: DESPLEGAR DESPACHO EN EC2 #2 (BACKEND2_EC2_IP)
   # ==========================================
   deploy-despacho:
-    needs: build-and-push
+    needs: [build-and-push, deploy-ventas] # Asegura que se construya y despliegue Ventas antes de Despacho
     runs-on: ubuntu-latest
     steps:
       - name: Deploy Despacho via Bastion
