@@ -1,67 +1,114 @@
-name: CI/CD Pipeline to AWS EC2 (Backend)
+name: CI/CD Pipeline to AWS EC2 (Split Backends)
 
 on:
   push:
     branches:
-      - deploy # Triggering on the deploy branch as required by the assignment
+      - deploy
 
 jobs:
-  build-push-deploy:
+  # ==========================================
+  # FASE 1: CONSTRUIR Y SUBIR A DOCKER HUB
+  # ==========================================
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- 1. BUILD & PUSH PHASE ---
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and Push Ventas API Image
+      - name: Build and Push Ventas Image
         uses: docker/build-push-action@v5
         with:
           context: ./Springboot-API-REST-ventas
           push: true
           tags: m4tss/springboot-api-rest-ventas:latest
 
-      - name: Build and Push Despacho API Image
+      - name: Build and Push Despacho Image
         uses: docker/build-push-action@v5
         with:
           context: ./Springboot-API-REST-DESPACHO
           push: true
           tags: m4tss/springboot-api-rest-despacho:latest
 
-      # --- 2. DEPLOY PHASE ---
-      - name: Copy Compose File to Private EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.BACKEND_EC2_IP }}
-          username: ${{ secrets.AWS_USER }}
-          key: ${{ secrets.AWS_SSH_KEY }}
-          source: "compose-back.yml"
-          target: "/home/${{ secrets.AWS_USER }}/app"
-          proxy_host: ${{ secrets.FRONTEND_EC2_IP }} # <-- Tu IP Pública del Frontend
-          proxy_username: ${{ secrets.AWS_USER }}
-          proxy_key: ${{ secrets.AWS_SSH_KEY }}
-
-      - name: Deploy to EC2
+  # ==========================================
+  # FASE 2: DESPLEGAR VENTAS EN EC2 #1 (BACKEND_EC2_IP)
+  # ==========================================
+  deploy-ventas:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Ventas via Bastion
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.BACKEND_EC2_IP }}
           username: ${{ secrets.AWS_USER }}
           key: ${{ secrets.AWS_SSH_KEY }}
-          proxy_host: ${{ secrets.FRONTEND_EC2_IP }} # <-- Tu IP Pública del Frontend
+          proxy_host: ${{ secrets.FRONTEND_EC2_IP }}
           proxy_username: ${{ secrets.AWS_USER }}
           proxy_key: ${{ secrets.AWS_SSH_KEY }}
-
           script: |
-            cd /home/${{ secrets.AWS_USER }}/app
+            # 1. Crear red interna (si no existe)
+            docker network create ventas_net || true
 
-            # Pull the fresh APIs and the DB image, then update containers
-            docker-compose -f compose-back.yml pull
-            docker-compose -f compose-back.yml up -d
+            # 2. Levantar Base de Datos (Si ya existe, solo la enciende. Conserva el volumen 'venta')
+            docker start mysqldb-ventas || docker run -d --name mysqldb-ventas --network ventas_net -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=ventas -v venta:/var/lib/mysql mysql:8.4
 
-            # Clean up old unused images to save EC2 disk space
+            # 3. Actualizar la API de Spring Boot
+            docker pull m4tss/springboot-api-rest-ventas:latest
+            docker rm -f springboot-api-rest-ventas || true
+
+            # 4. Correr la API inyectando las variables de entorno para que encuentre a MySQL
+            docker run -d --name springboot-api-rest-ventas \
+              --network ventas_net \
+              -p 8081:8080 \
+              -e SPRING_DATASOURCE_URL=jdbc:mysql://mysqldb-ventas:3306/ventas \
+              -e SPRING_DATASOURCE_USERNAME=root \
+              -e SPRING_DATASOURCE_PASSWORD=root \
+              --restart always m4tss/springboot-api-rest-ventas:latest
+              
+            # 5. Limpieza
+            docker image prune -f
+
+  # ==========================================
+  # FASE 3: DESPLEGAR DESPACHO EN EC2 #2 (BACKEND2_EC2_IP)
+  # ==========================================
+  deploy-despacho:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Despacho via Bastion
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.BACKEND2_EC2_IP }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_SSH_KEY }}
+          proxy_host: ${{ secrets.FRONTEND_EC2_IP }}
+          proxy_username: ${{ secrets.AWS_USER }}
+          proxy_key: ${{ secrets.AWS_SSH_KEY }}
+          script: |
+            # 1. Crear red interna (si no existe)
+            docker network create despacho_net || true
+
+            # 2. Levantar Base de Datos (Conserva el volumen 'despacho')
+            docker start mysqldb-despacho || docker run -d --name mysqldb-despacho --network despacho_net -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=despacho -v despacho:/var/lib/mysql mysql:8.4
+
+            # 3. Actualizar la API de Spring Boot
+            docker pull m4tss/springboot-api-rest-despacho:latest
+            docker rm -f springboot-api-rest-despacho || true
+
+            # 4. Correr la API inyectando las variables de entorno
+            docker run -d --name springboot-api-rest-despacho \
+              --network despacho_net \
+              -p 8080:8081 \
+              -e SPRING_DATASOURCE_URL=jdbc:mysql://mysqldb-despacho:3306/despacho \
+              -e SPRING_DATASOURCE_USERNAME=root \
+              -e SPRING_DATASOURCE_PASSWORD=root \
+              --restart always m4tss/springboot-api-rest-despacho:latest
+              
+            # 5. Limpieza
             docker image prune -f
