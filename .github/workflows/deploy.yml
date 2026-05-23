@@ -42,6 +42,9 @@ jobs:
           key: ${{ secrets.AWS_SSH_KEY }}
           source: "compose-back.yml"
           target: "/home/${{ secrets.AWS_USER }}/app"
+          proxy_host: ${{ secrets.FRONTEND_EC2_IP }} # <-- Tu IP Pública del Frontend
+          proxy_username: ${{ secrets.AWS_USER }}
+          proxy_key: ${{ secrets.AWS_SSH_KEY }}
 
       - name: Deploy to EC2
         uses: appleboy/ssh-action@master
@@ -49,6 +52,10 @@ jobs:
           host: ${{ secrets.BACKEND_EC2_IP }}
           username: ${{ secrets.AWS_USER }}
           key: ${{ secrets.AWS_SSH_KEY }}
+          proxy_host: ${{ secrets.FRONTEND_EC2_IP }} # <-- Tu IP Pública del Frontend
+          proxy_username: ${{ secrets.AWS_USER }}
+          proxy_key: ${{ secrets.AWS_SSH_KEY }}
+
           script: |
             cd /home/${{ secrets.AWS_USER }}/app
 
