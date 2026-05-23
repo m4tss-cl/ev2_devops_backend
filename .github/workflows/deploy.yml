@@ -22,14 +22,14 @@ jobs:
       - name: Build and Push Ventas API Image
         uses: docker/build-push-action@v5
         with:
-          context: . # Change this to ./ventas if it is in a subfolder
+          context: ../../Springboot-API-REST-ventas/ # Change this to ./ventas if it is in a subfolder
           push: true
           tags: m4tss/springboot-api-rest-ventas:latest
 
       - name: Build and Push Despacho API Image
         uses: docker/build-push-action@v5
         with:
-          context: . # Change this to ./despacho if it is in a subfolder
+          context: ../../Springboot-API-REST-DESPACHO/ # Change this to ./despacho if it is in a subfolder
           push: true
           tags: m4tss/springboot-api-rest-despacho:latest
 
