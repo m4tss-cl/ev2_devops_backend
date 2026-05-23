@@ -1,0 +1,60 @@
+name: CI/CD Pipeline to AWS EC2 (Backend)
+
+on:
+  push:
+    branches:
+      - deploy # Triggering on the deploy branch as required by the assignment
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # --- 1. BUILD & PUSH PHASE ---
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Ventas API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: . # Change this to ./ventas if it is in a subfolder
+          push: true
+          tags: m4tss/springboot-api-rest-ventas:latest
+
+      - name: Build and Push Despacho API Image
+        uses: docker/build-push-action@v5
+        with:
+          context: . # Change this to ./despacho if it is in a subfolder
+          push: true
+          tags: m4tss/springboot-api-rest-despacho:latest
+
+      # --- 2. DEPLOY PHASE ---
+      - name: Copy Compose File to Private EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.BACKEND_EC2_IP }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_SSH_KEY }}
+          source: "compose-back.yml"
+          target: "/home/${{ secrets.AWS_USER }}/app"
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.BACKEND_EC2_IP }}
+          username: ${{ secrets.AWS_USER }}
+          key: ${{ secrets.AWS_SSH_KEY }}
+          script: |
+            cd /home/${{ secrets.AWS_USER }}/app
+
+            # Pull the fresh APIs and the DB image, then update containers
+            docker-compose -f compose-back.yml pull
+            docker-compose -f compose-back.yml up -d
+
+            # Clean up old unused images to save EC2 disk space
+            docker image prune -f
