@@ -1,0 +1,69 @@
+services:
+  microservice-despacho:
+    image: m4tss/springboot-api-rest-despacho:latest
+    container_name: springboot-api-rest-despacho
+    ports:
+      - 8080:8081
+    depends_on:
+      mysqldb-despacho:
+        condition: service_healthy
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysqldb-despacho:3306/${MYSQL_DATABASE_DESPACHO:-despacho}
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-root}
+
+  microservice-ventas:
+    image: m4tss/springboot-api-rest-ventas:latest
+    container_name: springboot-api-rest-ventas
+    ports:
+      - 8081:8080
+    depends_on:
+      mysqldb-ventas:
+        condition: service_healthy
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysqldb-ventas:3306/${MYSQL_DATABASE_VENTAS:-ventas}
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=${MYSQL_PASSWORD:-root}
+
+  mysqldb-despacho:
+    container_name: mysqldb-despacho
+    image: mysql:8.4
+    ports:
+      - 3306:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD:-root}
+      - MYSQL_DATABASE=${MYSQL_DATABASE_DESPACHO:-despacho}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - despacho:/var/lib/mysql
+  mysqldb-ventas:
+    container_name: mysqldb-ventas
+    image: mysql:8.4
+    ports:
+      - 3307:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD:-root}
+      - MYSQL_DATABASE=${MYSQL_DATABASE_VENTAS:-ventas}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - venta:/var/lib/mysql
+
+volumes:
+  despacho:
+  venta:
