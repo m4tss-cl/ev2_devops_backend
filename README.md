@@ -40,10 +40,10 @@ Desde la raíz del repositorio:
 docker compose -f compose-back.yml up -d
 ```
 
-Servicios y puertos expuestos:
+Servicios y puertos expuestos (formato `host:contenedor`):
 
-- **Despacho API**: `http://localhost:8080` (internamente corre en `8081`)
-- **Ventas API**: `http://localhost:8081` (internamente corre en `8080`)
+- **Despacho API**: `8080:8081` → acceso en `http://localhost:8080`
+- **Ventas API**: `8081:8080` → acceso en `http://localhost:8081`
 - **MySQL despacho**: `localhost:3306`
 - **MySQL ventas**: `localhost:3307`
 
