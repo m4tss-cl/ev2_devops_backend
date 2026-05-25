@@ -5,30 +5,6 @@ on:
     branches:
       - deploy
 
-# ─────────────────────────────────────────────
-# REQUIRED GITHUB SECRETS:
-#
-#   DOCKERHUB_USERNAME       → Docker Hub user
-#   DOCKERHUB_TOKEN          → Docker Hub access token
-#
-#   FRONTEND_EC2_IP          → Public IP of bastion/frontend EC2
-#   BACKEND_EC2_IP           → Private IP of backend EC2 #1  (ventas)
-#   BACKEND2_EC2_IP          → Private IP of backend EC2 #2  (despacho)
-#   AWS_USER                 → EC2 SSH username (e.g. ec2-user / ubuntu)
-#   AWS_SSH_KEY              → Private SSH key (PEM contents)
-#
-#   AWS_ACCESS_KEY_ID        → IAM key with ec2:AuthorizeSecurityGroupIngress
-#                              + ec2:RevokeSecurityGroupIngress
-#   AWS_SECRET_ACCESS_KEY    → IAM secret for the key above
-#   AWS_REGION               → e.g. us-east-1
-#   FRONTEND_SG_ID           → sg-00917bfa35430e948  (frontend-sg)
-#
-# ONE-TIME AWS MANUAL STEP (do this once in the console):
-#   In backend-sg (sg-0ddcba0b902d358b1) add an inbound rule:
-#     Type: SSH | Protocol: TCP | Port: 22 | Source: sg-00917bfa35430e948
-#   This lets the bastion SSH into both backend instances.
-# ─────────────────────────────────────────────
-
 jobs:
   # ==========================================
   # FASE 1: CONSTRUIR Y SUBIR A DOCKER HUB
@@ -45,7 +21,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Dockerfile 1 exposes 8080 → ventas
+      # Dockerfile expone 8080
       - name: Build and Push Ventas Image
         uses: docker/build-push-action@v5
         with:
@@ -53,7 +29,7 @@ jobs:
           push: true
           tags: m4tss/springboot-api-rest-ventas:latest
 
-      # Dockerfile 2 exposes 8081 → despacho
+      # Dockerfile expone 8081
       - name: Build and Push Despacho Image
         uses: docker/build-push-action@v5
         with:
@@ -68,25 +44,6 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      # ── 1. Get this runner's public IP ──────────────────────────────────
-      - name: Get runner IP
-        id: ip
-        run: echo "ipv4=$(curl -sf https://checkip.amazonaws.com)" >> $GITHUB_OUTPUT
-
-      # ── 2. Open SSH on the bastion for this runner ───────────────────────
-      - name: Whitelist runner IP on frontend-sg
-        run: |
-          aws ec2 authorize-security-group-ingress \
-            --group-id ${{ secrets.FRONTEND_SG_ID }} \
-            --protocol tcp \
-            --port 22 \
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
-      # ── 3. Deploy via bastion ────────────────────────────────────────────
       - name: Deploy Ventas via Bastion
         uses: appleboy/ssh-action@master
         with:
@@ -96,7 +53,6 @@ jobs:
           proxy_host: ${{ secrets.FRONTEND_EC2_IP }}
           proxy_username: ${{ secrets.AWS_USER }}
           proxy_key: ${{ secrets.AWS_SSH_KEY }}
-          # Give MySQL a moment to be ready on cold starts
           command_timeout: 5m
           script: |
             # 1. Red interna
@@ -124,8 +80,7 @@ jobs:
             docker pull m4tss/springboot-api-rest-ventas:latest
             docker rm -f springboot-api-rest-ventas 2>/dev/null || true
 
-            # 5. Correr la API
-            #    Dockerfile expone 8080 → mapeamos al host en 8081
+            # 5. Correr la API (Dockerfile expone 8080 → host 8081)
             docker run -d \
               --name springboot-api-rest-ventas \
               --network ventas_net \
@@ -139,20 +94,6 @@ jobs:
             # 6. Limpieza
             docker image prune -f
 
-      # ── 4. Always revoke the runner IP (even if deploy failed) ───────────
-      - name: Revoke runner IP from frontend-sg
-        if: always()
-        run: |
-          aws ec2 revoke-security-group-ingress \
-            --group-id ${{ secrets.FRONTEND_SG_ID }} \
-            --protocol tcp \
-            --port 22 \
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
   # ==========================================
   # FASE 3: DESPLEGAR DESPACHO EN EC2 #2
   # ==========================================
@@ -160,25 +101,6 @@ jobs:
     needs: [build-and-push, deploy-ventas]
     runs-on: ubuntu-latest
     steps:
-      # ── 1. Get this runner's public IP ──────────────────────────────────
-      - name: Get runner IP
-        id: ip
-        run: echo "ipv4=$(curl -sf https://checkip.amazonaws.com)" >> $GITHUB_OUTPUT
-
-      # ── 2. Open SSH on the bastion for this runner ───────────────────────
-      - name: Whitelist runner IP on frontend-sg
-        run: |
-          aws ec2 authorize-security-group-ingress \
-            --group-id ${{ secrets.FRONTEND_SG_ID }} \
-            --protocol tcp \
-            --port 22 \
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
-
-      # ── 3. Deploy via bastion ────────────────────────────────────────────
       - name: Deploy Despacho via Bastion
         uses: appleboy/ssh-action@master
         with:
@@ -215,8 +137,7 @@ jobs:
             docker pull m4tss/springboot-api-rest-despacho:latest
             docker rm -f springboot-api-rest-despacho 2>/dev/null || true
 
-            # 5. Correr la API
-            #    Dockerfile expone 8081 → mapeamos al host en 8080
+            # 5. Correr la API (Dockerfile expone 8081 → host 8080)
             docker run -d \
               --name springboot-api-rest-despacho \
               --network despacho_net \
@@ -229,17 +150,3 @@ jobs:
 
             # 6. Limpieza
             docker image prune -f
-
-      # ── 4. Always revoke the runner IP (even if deploy failed) ───────────
-      - name: Revoke runner IP from frontend-sg
-        if: always()
-        run: |
-          aws ec2 revoke-security-group-ingress \
-            --group-id ${{ secrets.FRONTEND_SG_ID }} \
-            --protocol tcp \
-            --port 22 \
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
